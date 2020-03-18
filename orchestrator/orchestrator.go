@@ -10,7 +10,7 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"kubei/common"
+	"gitlab.com/portshift/kubei/common"
 	"net/http"
 	"os"
 	"strconv"
@@ -21,14 +21,15 @@ import (
 )
 
 type Orchestrator struct {
-	ImageK8ExtendedContextMap common.ImageK8ExtendedContextMap
-	DataUpdateLock            *sync.Mutex
-	ExecutionConfig           *common.ExecutionConfiguration
-	scanIssuesMessages        *[]string
-	batchCompletedScansCount  *int32
-	k8ContextService          common.K8ContextServiceInterface
+	ImageK8ExtendedContextMap common.ImageK8ExtendedContextMap // map from image name to a list of contexts it resides within (container, pod, namespace, repository secret)
+	DataUpdateLock            *sync.Mutex // Lock because the webapp accesses the scanIssuesMessages
+	ExecutionConfig           *common.ExecutionConfiguration // general program config. exists also on the webapp struct
+	scanIssuesMessages        *[]string // slice of image scan error that is shared between the orchestrator and the webapp
+	batchCompletedScansCount  *int32 // to sync completed scan count with the webapp
+	k8ContextService          common.K8ContextServiceInterface // accessor to read K8s data related to pods, their containers and secrets to pull their images
 }
 
+// XXX - not used...
 type OrchestratorInterface interface {
 	Scan()
 }
@@ -40,10 +41,10 @@ const webappServiceName = "kubei-service"
 
 
 
-
+// Map the image contexts of all pods. Why does it return an error?
 func (orc *Orchestrator) getPodsImagesDetails(pods []corev1.Pod) (common.ImageNamespacesMap, common.NamespacedImageSecretMap, error) {
 	log.Infof("There are %d pods in the given namespaces scope", len(pods))
-	totalContainers := 0
+	totalContainers := 0 // XXX just for print? and it's in the interface?
 	imageNamespacesMap := make(common.ImageNamespacesMap)
 	namespacedImageSecretMap := make(common.NamespacedImageSecretMap)
 	containerImagesSet := make(map[common.ContainerImageName]bool)
@@ -154,9 +155,9 @@ func (orc *Orchestrator) buildContainersPart(imageNamespace string, batch []stri
 		}
 		k8ExtendedContexts := orc.ImageK8ExtendedContextMap[common.ContainerImageName(image)]
 		if k8ExtendedContexts != nil {
-			secretName := namespacedImageSecretMap[image+"_"+imageNamespace]
+			secretName := namespacedImageSecretMap[image+"_"+imageNamespace] // XXX - need to create this key in a function
 			containerName := orc.getKubernetesCompliantContainerName(common.ContainerImageName(image))
-			clairServiceAddress := "clairsvc." + orc.ExecutionConfig.KubeiNamespace
+			clairServiceAddress := "clairsvc." + orc.ExecutionConfig.KubeiNamespace // XXX need to be configurable
 			env := []corev1.EnvVar{
 				{Name: "CLAIR_ADDR", Value: clairServiceAddress,},
 				{Name: "CLAIR_OUTPUT", Value: orc.ExecutionConfig.ClairOutput,},
@@ -179,7 +180,7 @@ func (orc *Orchestrator) buildContainersPart(imageNamespace string, batch []stri
 			orchestratorPodNamespace := os.Getenv("MY-POD-NAMESPACE")
 			container := apiv1.Container{
 				Name:  containerName,
-				Image: "rafiportshift/portshift-klar:1.0.0",
+				Image: "rafiportshift/portshift-klar:1.0.0", // XXX rafiportshift???
 				Args:  []string{image, webappServiceName + "." + orchestratorPodNamespace},
 				Env:   env,
 			}
@@ -267,6 +268,7 @@ func (orc *Orchestrator) runJobs(imageNames []string, imageNamespace string, sca
 		log.Infof(line)
 	}
 
+	// XXX - why do we create the service account?
 	if imageNamespace != orc.ExecutionConfig.KubeiNamespace { //we dont delete the service account we created in the yaml
 		log.Debugf("deleting service account kubei in namespace %s", imageNamespace)
 		err := orc.ExecutionConfig.Clientset.CoreV1().ServiceAccounts(imageNamespace).Delete("kubei", nil)
@@ -277,7 +279,7 @@ func (orc *Orchestrator) runJobs(imageNames []string, imageNamespace string, sca
 }
 
 func (orc *Orchestrator) printAllImages() {
-	imageNames := make([]string, 0, len(orc.ImageK8ExtendedContextMap))
+	imageNames := make([]string, 0, len(orc.ImageK8ExtendedContextMap)) // ?
 	for k := range orc.ImageK8ExtendedContextMap {
 		imageNames = append(imageNames, string(k))
 	}
@@ -288,6 +290,7 @@ func (orc *Orchestrator) printAllImages() {
 func (orc *Orchestrator) printBatch(batch []string, startPoint int) {
 	log.Infof("[")
 	for index, imageName := range batch {
+		// XXX - is startPoint just for print or an offset in the slice?
 		log.Infof("   %d)%s", startPoint+index+1, imageName)
 	}
 	log.Infof("]")
@@ -317,7 +320,7 @@ func (orc *Orchestrator) createKubeiServiceAccount(imageNamespace string) error 
 }
 
 func (orc *Orchestrator) executeScan() error {
-	var scannedImageNames []string
+	var scannedImageNames []string // XXX - scanned images are always empty???
 
 	imageNamespacesMap, namespacedImageSecretMap, err := orc.getImageDetails()
 	if err != nil {
@@ -326,7 +329,7 @@ func (orc *Orchestrator) executeScan() error {
 
 	for imageNamespace, imageNames := range imageNamespacesMap { //scan by namespace
 		if imageNamespace != orc.ExecutionConfig.KubeiNamespace { //if not our own namespace
-			err := orc.createKubeiServiceAccount(imageNamespace)
+			err := orc.createKubeiServiceAccount(imageNamespace) // XXX - why do we need to create a service a
 			if err != nil {
 				return err
 			}
@@ -338,6 +341,7 @@ func (orc *Orchestrator) executeScan() error {
 	return nil
 }
 
+// XXX - need to but configurable or const
 func (orc *Orchestrator) waitForClairService() bool {
 	//status from clair V1 api
 	//https://coreos.com/clair/docs/latest/api_v1.html#get-namespaces
@@ -347,6 +351,7 @@ func (orc *Orchestrator) waitForClairService() bool {
 	return ready
 }
 
+// XXX - why is it a method? need to remove magic numbers or put it in config
 func (orc *Orchestrator) waitForServiceToBeReady(url string) bool {
 	for i := 0; i < 30; i++ { //30 * 10s = 300s = 5m
 		if orc.testConnection(url) {
@@ -359,6 +364,7 @@ func (orc *Orchestrator) waitForServiceToBeReady(url string) bool {
 	return false
 }
 
+// XXX - why is it a method?
 func (orc *Orchestrator) testConnection(url string) bool {
 	response, err := http.Get(url)
 
@@ -415,6 +421,6 @@ func (orc *Orchestrator) Scan() {
 			log.Warnf("   %d)%s", index+1, warning)
 		}
 		var slice []string
-		orc.scanIssuesMessages = &slice
+		orc.scanIssuesMessages = &slice // XXX - why is it overridden with a pointer to an empty slice? isn't it shared with the orchestrator?
 	}
 }

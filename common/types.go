@@ -8,7 +8,9 @@ import (
 
 
 type K8ContextServiceInterface interface {
+	// Receives several maps with different information about the namespace with a single pod, and updates the received maps using the given pod information
 	GetK8ContextFromContainer(orchestratorImageK8ExtendedContextMap ImageK8ExtendedContextMap, pod *corev1.Pod, imageNamespacesMap ImageNamespacesMap, namespacedImageSecretMap NamespacedImageSecretMap, containerImagesSet map[ContainerImageName]bool, totalContainers int) (ImageNamespacesMap, NamespacedImageSecretMap, map[ContainerImageName]bool, int)
+	// returns a list of k8s secrets from pod's ImagePullSecrets names
 	GetPodImagePullSecrets(pod corev1.Pod) []corev1.Secret
 }
 
@@ -25,12 +27,15 @@ type K8ContextSecretService struct {}
 
 type ContainerImageName string
 
+// map for image names per namespace
 type ImageNamespacesMap map[string][]ContainerImageName
 
+// maps images to their pods, container, secrets and namespaces (each image cam appear in several pods)
 type ImageK8ExtendedContextMap map[ContainerImageName][]*K8ExtendedContext
 
 type NamespacedImageSecretMap map[string]string
 
+// XXX - Why this in types?
 type ViewData struct {
 	Vulnerabilities      []*ExtendedContextualVulnerability `json:"vulnerabilities,omitempty"`
 	Total                int                                `json:"total"`
@@ -42,6 +47,7 @@ type ViewData struct {
 	LastScannedNamespace string                             `json:"lastScannedNamespace"`
 }
 
+// XXX - should be in config package
 type ExecutionConfiguration struct {
 	Clientset        *kubernetes.Clientset `json:"clientset"`
 	Parallelism      int                   `json:"parallelism"`
